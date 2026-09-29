@@ -1,0 +1,340 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ComputerMonitor – Rapport</title>
+<style>
+:root{--bg:#f5f6f8;--card:#fff;--fg:#1d2330;--muted:#6b7280;--grid:#e5e7eb;--idle:#cfd4dc;--locked:#9aa1ad;--accent:#2563eb}
+@media (prefers-color-scheme:dark){:root{--bg:#111318;--card:#1a1d24;--fg:#e5e7eb;--muted:#9aa3b2;--grid:#2a2f3a;--idle:#3b414d;--locked:#5b6270;--accent:#60a5fa}}
+*{box-sizing:border-box}
+body{margin:0;font:14px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--fg)}
+header{padding:20px 24px 4px}h1{margin:0;font-size:22px}.sub{color:var(--muted)}
+main{padding:12px 24px 40px;display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(min(440px,100%),1fr))}
+.card{background:var(--card);border-radius:10px;padding:16px;box-shadow:0 1px 2px rgba(0,0,0,.06);min-width:0}
+.wide{grid-column:1/-1}
+h2{font-size:15px;margin:0 0 12px}
+.kpis{display:flex;flex-wrap:wrap;gap:28px}
+.kpi b{display:block;font-size:22px;font-variant-numeric:tabular-nums}.kpi span{color:var(--muted);font-size:12px}
+.row{display:grid;grid-template-columns:120px 1fr 64px;align-items:center;gap:8px;margin:2px 0;cursor:pointer}
+.row canvas{width:100%;height:18px;display:block}
+.row .lbl{font-size:12px;color:var(--muted);white-space:nowrap}
+.row.sel .lbl{color:var(--fg);font-weight:600}
+.hours{display:grid;grid-template-columns:120px 1fr 64px;gap:8px;font-size:10px;color:var(--muted)}
+.hours div{display:flex;justify-content:space-between}
+.b{display:grid;grid-template-columns:minmax(90px,200px) 1fr 72px 48px;gap:8px;align-items:center;margin:3px 0;font-size:13px}
+.track{background:var(--grid);border-radius:3px;height:12px;overflow:hidden}.fill{height:100%;border-radius:3px}
+.num{text-align:right;font-variant-numeric:tabular-nums}
+.name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.legend{display:flex;flex-wrap:wrap;gap:6px 14px;margin-top:12px;font-size:12px}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px}
+.legend span{cursor:pointer;user-select:none}.legend span.off{opacity:.35}
+#tip{position:fixed;pointer-events:none;background:#111827;color:#f9fafb;padding:6px 9px;border-radius:6px;font-size:12px;max-width:440px;display:none;z-index:10;box-shadow:0 4px 12px rgba(0,0,0,.25)}
+.cols{display:flex;align-items:flex-end;gap:2px;height:160px;border-bottom:1px solid var(--grid)}
+.cols div{flex:1;background:var(--accent);border-radius:2px 2px 0 0;min-height:1px}
+.axis{display:flex;gap:2px;font-size:10px;color:var(--muted)}.axis span{flex:1;text-align:center;overflow:hidden;white-space:nowrap}
+table{width:100%;border-collapse:collapse;font-size:13px;table-layout:fixed}
+td,th{padding:4px 6px;border-bottom:1px solid var(--grid);text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+th{color:var(--muted);font-weight:500}
+input{background:var(--bg);color:var(--fg);border:1px solid var(--grid);border-radius:6px;padding:6px 8px;width:min(320px,100%);margin-bottom:8px}
+#detail{width:100%;height:140px;display:block;cursor:grab}
+.hint{font-size:12px;color:var(--muted);margin-top:6px}
+</style>
+</head>
+<body>
+<header><h1>ComputerMonitor</h1><div class="sub" id="sub"></div></header>
+<main>
+<section class="card wide"><div class="kpis" id="kpis"></div></section>
+<section class="card wide"><h2>Frise chronologique</h2>
+  <div class="hours"><span></span><div><span>0h</span><span>3h</span><span>6h</span><span>9h</span><span>12h</span><span>15h</span><span>18h</span><span>21h</span><span>24h</span></div><span></span></div>
+  <div id="days"></div><div class="legend" id="legend"></div></section>
+<section class="card wide"><h2 id="dtitle">Détail</h2><canvas id="detail"></canvas>
+  <div class="hint">Cliquez sur un jour de la frise · molette : zoom · glisser : déplacer · double-clic : journée entière</div></section>
+<section class="card"><h2>Applications</h2><div id="apps"></div></section>
+<section class="card"><h2>Catégories</h2><div id="cats"></div></section>
+<section class="card"><h2>Activité par heure <span class="sub">(moyenne par jour actif)</span></h2><div class="cols" id="hours"></div><div class="axis" id="hoursAxis"></div></section>
+<section class="card"><h2>Jours de la semaine <span class="sub">(moyenne par jour actif)</span></h2><div id="wdays"></div></section>
+<section class="card wide"><h2>Temps actif par jour</h2><div class="cols" id="daily"></div><div class="axis" id="dailyAxis"></div></section>
+<section class="card"><h2>Durée des sessions de concentration</h2><div id="focus"></div></section>
+<section class="card"><h2>Logiciels en cours d'exécution <span class="sub">(temps cumulé)</span></h2><div id="procs"></div></section>
+<section class="card wide"><h2>Fenêtres et documents</h2><input id="q" placeholder="Filtrer (application ou titre)…">
+  <table><colgroup><col style="width:90px"><col style="width:200px"><col></colgroup><thead><tr><th>Temps</th><th>Application</th><th>Titre</th></tr></thead><tbody id="titles"></tbody></table></section>
+</main>
+<div id="tip"></div>
+<script>
+"use strict";
+const D = /*__CMON_DATA__*/;
+const $ = id => document.getElementById(id);
+const PAL = ['#4e79a7','#f28e2b','#e15759','#76b7b2','#59a14f','#edc948','#b07aa1','#ff9da7','#9c755f','#17becf','#bcbd22','#8c6d31','#6b6ecf','#e7969c'];
+const OTHER = '#a3a3a3';
+const css = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+const pad = n => String(n).padStart(2, '0');
+function fmt(s) { s = Math.round(s); if (s >= 3600) return Math.floor(s/3600) + 'h ' + pad(Math.floor(s%3600/60)) + 'm'; if (s >= 60) return Math.floor(s/60) + 'm ' + pad(s%60) + 's'; return s + 's'; }
+const clock = t => { const d = new Date(t*1000); return pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds()); };
+const hm = secs => pad(Math.floor(secs/3600)) + ':' + pad(Math.floor(secs%3600/60));
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const WD = ['dimanche','lundi','mardi','mercredi','jeudi','vendredi','samedi'];
+const STATE = ['actif','inactif','verrouillé'];
+const appName = i => i ? (D.apps[i].d || D.apps[i].n) : '(bureau)';
+function dayStart(t) { const d = new Date(t*1000); d.setHours(0,0,0,0); return d.getTime()/1000; }
+function nextDay(ds) { const d = new Date(ds*1000); d.setDate(d.getDate()+1); d.setHours(0,0,0,0); return d.getTime()/1000; }
+function dayKey(t) { const d = new Date(t*1000); return d.getFullYear() + '-' + pad(d.getMonth()+1) + '-' + pad(d.getDate()); }
+
+/* segments : [début, durée, état, app, titre, catégorie] */
+const S = D.segs.map(a => ({s: a[0], e: a[0] + a[1], st: a[2], a: a[3], t: a[4], c: a[5]}));
+
+/* découpage par jour */
+const days = new Map();
+for (const g of S) {
+  let t = g.s;
+  while (t < g.e) {
+    const ds = dayStart(t), de = nextDay(ds), e = Math.min(g.e, de), k = dayKey(ds);
+    if (!days.has(k)) days.set(k, {k, ds, de, segs: [], sec: [0,0,0], first: 0, last: 0});
+    const d = days.get(k);
+    d.segs.push({...g, s: t, e});
+    d.sec[g.st] += e - t;
+    if (g.st === 0) { if (!d.first) d.first = t; d.last = e; }
+    t = e;
+  }
+}
+const dayList = [...days.values()].sort((a, b) => a.ds - b.ds);
+const activeDays = dayList.filter(d => d.sec[0] > 0);
+
+/* totaux */
+const appTot = new Map(), catTot = new Map(), titleTot = new Map();
+let active = 0;
+for (const g of S) {
+  if (g.st) continue;
+  const l = g.e - g.s; active += l;
+  appTot.set(g.a, (appTot.get(g.a) || 0) + l);
+  catTot.set(g.c, (catTot.get(g.c) || 0) + l);
+  const k = g.a + '|' + g.t; titleTot.set(k, (titleTot.get(k) || 0) + l);
+}
+const topApps = [...appTot].sort((a, b) => b[1] - a[1]);
+const color = new Map(); topApps.slice(0, PAL.length).forEach(([a], i) => color.set(a, PAL[i]));
+const appColor = a => color.get(a) || OTHER;
+const catColor = new Map(); [...catTot].sort((a, b) => b[1] - a[1]).forEach(([c], i) => catColor.set(c, PAL[(i + 3) % PAL.length]));
+
+/* sessions : même application sans interruption */
+const sessions = [];
+for (const g of S) {
+  if (g.st) continue;
+  const last = sessions[sessions.length - 1];
+  if (last && last.a === g.a && g.s - last.e <= 1) last.e = g.e; else sessions.push({s: g.s, e: g.e, a: g.a});
+}
+
+let highlight = null;
+const tip = $('tip');
+function showTip(ev, html) { tip.innerHTML = html; tip.style.display = 'block';
+  const x = Math.min(ev.clientX + 14, innerWidth - tip.offsetWidth - 8); tip.style.left = x + 'px'; tip.style.top = (ev.clientY + 14) + 'px'; }
+function hideTip() { tip.style.display = 'none'; }
+function segTip(g) {
+  const head = clock(g.s) + ' → ' + clock(g.e) + ' · <b>' + fmt(g.e - g.s) + '</b>';
+  if (g.st) return head + '<br>' + STATE[g.st];
+  return head + '<br><b>' + esc(appName(g.a)) + '</b>' + (D.cats[g.c] ? ' · ' + esc(D.cats[g.c]) : '') + (D.titles[g.t] ? '<br>' + esc(D.titles[g.t]) : '');
+}
+
+/* ---------- en-tête et indicateurs ---------- */
+$('sub').textContent = D.period + ' · généré le ' + D.generated;
+{
+  const n = activeDays.length || 1;
+  const avgFirst = activeDays.reduce((s, d) => s + d.first - d.ds, 0) / n;
+  const avgLast = activeDays.reduce((s, d) => s + d.last - d.ds, 0) / n;
+  const longest = sessions.reduce((m, x) => (!m || x.e - x.s > m.e - m.s) ? x : m, null);
+  const idle = dayList.reduce((s, d) => s + d.sec[1], 0);
+  const k = [
+    [fmt(active), 'temps actif'],
+    [fmt(active / n), 'moyenne par jour actif (' + activeDays.length + ' j)'],
+    [activeDays.length ? hm(avgFirst) + ' – ' + hm(avgLast) : '–', 'arrivée / départ moyens'],
+    [fmt(idle), 'inactif'],
+    [appTot.size, 'applications'],
+    [active ? (Math.max(0, sessions.length - 1) * 3600 / active).toFixed(1) : '0', 'changements d\'app / heure'],
+    [sessions.length ? fmt(active / sessions.length) : '–', 'session moyenne'],
+    [longest ? fmt(longest.e - longest.s) : '–', 'plus longue session' + (longest ? ' (' + esc(appName(longest.a)) + ')' : '')],
+  ];
+  $('kpis').innerHTML = k.map(([v, l]) => '<div class="kpi"><b>' + v + '</b><span>' + l + '</span></div>').join('');
+}
+
+/* ---------- frise (une ligne par jour) ---------- */
+function drawRow(cv, d) {
+  const dpr = devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  cv.width = W * dpr; cv.height = H * dpr;
+  const x = cv.getContext('2d'); x.scale(dpr, dpr);
+  x.fillStyle = css('--grid'); x.fillRect(0, H/2 - 0.5, W, 1);
+  for (let h = 3; h < 24; h += 3) { x.fillRect(W * h / 24, 0, 1, H); }
+  const span = d.de - d.ds;
+  for (const g of d.segs) {
+    const x0 = (g.s - d.ds) / span * W, w = Math.max(0.6, (g.e - g.s) / span * W);
+    if (g.st === 0) { x.globalAlpha = highlight === null || highlight === g.a ? 1 : 0.15; x.fillStyle = appColor(g.a); x.fillRect(x0, 1, w, H - 2); }
+    else { x.globalAlpha = 1; x.fillStyle = g.st === 1 ? css('--idle') : css('--locked'); x.fillRect(x0, H * 0.3, w, H * 0.4); }
+  }
+  x.globalAlpha = 1;
+}
+const rows = [];
+function buildRows() {
+  const el = $('days'); el.innerHTML = '';
+  for (const d of dayList) {
+    const r = document.createElement('div'); r.className = 'row';
+    const dt = new Date(d.ds * 1000);
+    r.innerHTML = '<span class="lbl">' + WD[dt.getDay()].slice(0, 3) + ' ' + d.k + '</span><canvas></canvas><span class="lbl num">' + fmt(d.sec[0]) + '</span>';
+    el.appendChild(r);
+    const cv = r.querySelector('canvas');
+    rows.push({r, cv, d});
+    cv.addEventListener('mousemove', ev => {
+      const t = d.ds + ev.offsetX / cv.clientWidth * (d.de - d.ds);
+      const g = d.segs.find(g => g.s <= t && t < g.e);
+      if (g) showTip(ev, segTip(g)); else hideTip();
+    });
+    cv.addEventListener('mouseleave', hideTip);
+    r.addEventListener('click', () => selectDay(d));
+  }
+}
+function redrawRows() { for (const o of rows) drawRow(o.cv, o.d); }
+
+function buildLegend() {
+  const items = topApps.slice(0, PAL.length).map(([a]) => a);
+  $('legend').innerHTML = items.map(a => '<span data-a="' + a + '"><i style="background:' + appColor(a) + '"></i>' + esc(appName(a)) + '</span>').join('')
+    + (topApps.length > PAL.length ? '<span><i style="background:' + OTHER + '"></i>autres</span>' : '')
+    + '<span><i style="background:' + css('--idle') + '"></i>inactif</span><span><i style="background:' + css('--locked') + '"></i>verrouillé</span>';
+  $('legend').querySelectorAll('span[data-a]').forEach(s => s.addEventListener('click', () => {
+    const a = +s.dataset.a; highlight = highlight === a ? null : a;
+    $('legend').querySelectorAll('span[data-a]').forEach(o => o.classList.toggle('off', highlight !== null && +o.dataset.a !== highlight));
+    redrawRows(); drawDetail();
+  }));
+}
+
+/* ---------- vue détaillée zoomable ---------- */
+const det = $('detail');
+let cur = null, v0 = 0, v1 = 1;
+function selectDay(d) {
+  cur = d; rows.forEach(o => o.r.classList.toggle('sel', o.d === d));
+  v0 = d.first ? Math.max(d.ds, d.first - 1800) : d.ds; v1 = d.last ? Math.min(d.de, d.last + 1800) : d.de;
+  $('dtitle').textContent = 'Détail du ' + WD[new Date(d.ds * 1000).getDay()] + ' ' + d.k + ' · ' + fmt(d.sec[0]) + ' actif';
+  drawDetail();
+}
+const LANES = [['Ordinateur', 16], ['Applications', 44], ['Catégories', 16]];
+const LBL = 92, TOP = 4;
+function drawDetail() {
+  if (!cur) return;
+  const dpr = devicePixelRatio || 1, W = det.clientWidth, H = det.clientHeight;
+  det.width = W * dpr; det.height = H * dpr;
+  const x = det.getContext('2d'); x.scale(dpr, dpr);
+  const PW = W - LBL, sx = t => LBL + (t - v0) / (v1 - v0) * PW;
+  x.font = '11px system-ui,sans-serif'; x.textBaseline = 'middle';
+  /* graduations */
+  const steps = [60, 300, 600, 900, 1800, 3600, 7200, 10800];
+  const step = steps.find(s => (v1 - v0) / s <= 12) || 21600;
+  x.fillStyle = css('--grid');
+  let y = TOP; const lanesY = [];
+  for (const [, h] of LANES) { lanesY.push(y); y += h + 8; }
+  for (let t = Math.ceil(v0 / step) * step; t <= v1; t += step) {
+    const px = sx(t); x.fillStyle = css('--grid'); x.fillRect(px, TOP, 1, y - TOP);
+    x.fillStyle = css('--muted'); const dd = new Date(t * 1000);
+    x.fillText(pad(dd.getHours()) + ':' + pad(dd.getMinutes()), px - 14, y + 6);
+  }
+  LANES.forEach(([n, h], i) => { x.fillStyle = css('--muted'); x.fillText(n, 0, lanesY[i] + h / 2); });
+  x.save(); x.beginPath(); x.rect(LBL, 0, PW, H); x.clip();
+  for (const g of cur.segs) {
+    if (g.e < v0 || g.s > v1) continue;
+    const x0 = sx(g.s), w = Math.max(0.8, sx(g.e) - x0);
+    x.fillStyle = g.st === 0 ? css('--accent') : g.st === 1 ? css('--idle') : css('--locked');
+    x.fillRect(x0, lanesY[0], w, LANES[0][1]);
+    if (g.st) continue;
+    x.globalAlpha = highlight === null || highlight === g.a ? 1 : 0.15;
+    x.fillStyle = appColor(g.a); x.fillRect(x0, lanesY[1], w, LANES[1][1]);
+    x.fillStyle = catColor.get(g.c) || OTHER; x.fillRect(x0, lanesY[2], w, LANES[2][1]);
+    x.globalAlpha = 1;
+  }
+  /* noms des applications dans les blocs assez larges */
+  let blk = null;
+  const flush = () => { if (blk && blk.w > 40) { x.fillStyle = '#fff'; x.save(); x.beginPath(); x.rect(blk.x, lanesY[1], blk.w - 2, LANES[1][1]); x.clip(); x.fillText(appName(blk.a), blk.x + 4, lanesY[1] + LANES[1][1] / 2); x.restore(); } };
+  for (const g of cur.segs) {
+    if (g.st || g.e < v0 || g.s > v1) { flush(); blk = null; continue; }
+    const x0 = sx(g.s), x1 = sx(g.e);
+    if (blk && blk.a === g.a && x0 - (blk.x + blk.w) < 1) blk.w = x1 - blk.x; else { flush(); blk = {a: g.a, x: x0, w: x1 - x0}; }
+  }
+  flush();
+  x.restore();
+}
+function detailAt(ev) {
+  const t = v0 + (ev.offsetX - LBL) / (det.clientWidth - LBL) * (v1 - v0);
+  return cur && cur.segs.find(g => g.s <= t && t < g.e);
+}
+det.addEventListener('wheel', ev => {
+  if (!cur) return; ev.preventDefault();
+  const f = ev.deltaY > 0 ? 1.25 : 0.8, t = v0 + (ev.offsetX - LBL) / (det.clientWidth - LBL) * (v1 - v0);
+  let n0 = t - (t - v0) * f, n1 = t + (v1 - t) * f;
+  if (n1 - n0 < 60) return;
+  v0 = Math.max(cur.ds, n0); v1 = Math.min(cur.de, n1); drawDetail();
+}, {passive: false});
+let drag = null;
+det.addEventListener('mousedown', ev => { drag = {x: ev.clientX, v0, v1}; det.style.cursor = 'grabbing'; });
+addEventListener('mouseup', () => { drag = null; det.style.cursor = 'grab'; });
+addEventListener('mousemove', ev => {
+  if (!drag || !cur) return;
+  const dt = (ev.clientX - drag.x) / (det.clientWidth - LBL) * (drag.v1 - drag.v0);
+  let n0 = drag.v0 - dt, n1 = drag.v1 - dt;
+  if (n0 < cur.ds) { n1 += cur.ds - n0; n0 = cur.ds; }
+  if (n1 > cur.de) { n0 -= n1 - cur.de; n1 = cur.de; }
+  v0 = n0; v1 = n1; drawDetail();
+});
+det.addEventListener('mousemove', ev => { if (drag) return; const g = detailAt(ev); if (g) showTip(ev, segTip(g)); else hideTip(); });
+det.addEventListener('mouseleave', hideTip);
+det.addEventListener('dblclick', () => { if (cur) { v0 = cur.ds; v1 = cur.de; drawDetail(); } });
+
+/* ---------- graphiques ---------- */
+function bars(el, list, total, max) {
+  max = max || Math.max(1, ...list.map(r => r[1]));
+  el.innerHTML = list.map(([label, v, c, extra]) => '<div class="b"><div class="name" title="' + esc(label) + '">' + esc(label) + '</div><div class="track"><div class="fill" style="width:' + (v / max * 100).toFixed(2) + '%;background:' + c + '"></div></div><div class="num">' + fmt(v) + '</div><div class="num">' + (extra !== undefined ? extra : total ? (v / total * 100).toFixed(1) + '%' : '') + '</div></div>').join('') || '<div class="sub">Aucune donnée</div>';
+}
+bars($('apps'), topApps.slice(0, 20).map(([a, v]) => [appName(a), v, appColor(a)]), active);
+bars($('cats'), [...catTot].sort((a, b) => b[1] - a[1]).map(([c, v]) => [D.cats[c] || '(sans catégorie)', v, catColor.get(c)]), active);
+{
+  const h = new Array(24).fill(0);
+  for (const g of S) {
+    if (g.st) continue;
+    let t = g.s;
+    while (t < g.e) { const d = new Date(t * 1000), nx = t + 3600 - d.getMinutes() * 60 - d.getSeconds(), e = Math.min(nx, g.e); h[d.getHours()] += e - t; t = e; }
+  }
+  const n = activeDays.length || 1, m = Math.max(1, ...h);
+  $('hours').innerHTML = h.map((v, i) => '<div style="height:' + (v / m * 100).toFixed(1) + '%" title="' + i + 'h : ' + fmt(v / n) + ' / jour"></div>').join('');
+  $('hoursAxis').innerHTML = h.map((_, i) => '<span>' + (i % 3 ? '' : i + 'h') + '</span>').join('');
+}
+{
+  const tot = new Array(7).fill(0), cnt = new Array(7).fill(0);
+  for (const d of activeDays) { const w = new Date(d.ds * 1000).getDay(); tot[w] += d.sec[0]; cnt[w]++; }
+  const order = [1, 2, 3, 4, 5, 6, 0];
+  bars($('wdays'), order.map(w => [WD[w], cnt[w] ? tot[w] / cnt[w] : 0, css('--accent'), cnt[w] + ' j']), 0);
+}
+{
+  const m = Math.max(1, ...dayList.map(d => d.sec[0]));
+  $('daily').innerHTML = dayList.map(d => '<div style="height:' + (d.sec[0] / m * 100).toFixed(1) + '%" title="' + d.k + ' : ' + fmt(d.sec[0]) + '"></div>').join('');
+  const every = Math.ceil(dayList.length / 16);
+  $('dailyAxis').innerHTML = dayList.map((d, i) => '<span>' + (i % every ? '' : d.k.slice(5)) + '</span>').join('');
+}
+{
+  const B = [[10, '< 10 s'], [60, '10 s – 1 min'], [300, '1 – 5 min'], [900, '5 – 15 min'], [1800, '15 – 30 min'], [3600, '30 – 60 min'], [Infinity, '> 1 h']];
+  const t = B.map(() => 0), c = B.map(() => 0);
+  for (const s of sessions) { const l = s.e - s.s, i = B.findIndex(b => l < b[0]); t[i] += l; c[i]++; }
+  bars($('focus'), B.map((b, i) => [b[1], t[i], css('--accent'), c[i] + '×']), 0);
+}
+{
+  const P = D.procs || [];
+  bars($('procs'), P.slice(0, 25).map(p => [p.n, p.s, '#8c6d31', p.l + '×']), 0);
+}
+{
+  const list = [...titleTot].map(([k, v]) => { const [a, t] = k.split('|').map(Number); return {a, t, v}; }).sort((x, y) => y.v - x.v);
+  const render = () => {
+    const q = $('q').value.toLowerCase();
+    const f = list.filter(r => !q || appName(r.a).toLowerCase().includes(q) || (D.titles[r.t] || '').toLowerCase().includes(q)).slice(0, 300);
+    $('titles').innerHTML = f.map(r => '<tr><td class="num">' + fmt(r.v) + '</td><td class="name">' + esc(appName(r.a)) + '</td><td title="' + esc(D.titles[r.t] || '') + '">' + esc(D.titles[r.t] || '(sans titre)') + '</td></tr>').join('');
+  };
+  $('q').addEventListener('input', render); render();
+}
+
+buildRows(); buildLegend(); redrawRows();
+if (dayList.length) selectDay(dayList[dayList.length - 1]);
+addEventListener('resize', () => { redrawRows(); drawDetail(); });
+</script>
+</body>
+</html>
