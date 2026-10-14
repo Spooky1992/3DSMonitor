@@ -50,9 +50,11 @@ But : vérifier que le plugin se charge et que la chaîne de build est bonne.
 1. Installer le `.3gx` produit par la CI (voir ci-dessus), de préférence pour un
    seul jeu que tu connais bien.
 2. Lancer le jeu.
-   - **Attendu** : au démarrage (après quelques secondes, le délai de boot
-     CTRPF), l'écran du plugin clignote et/ou une notification
-     **« 3DSMonitor loaded »** apparaît en haut de l'écran.
+   - **Attendu** : quelques secondes après le démarrage (délai de boot CTRPF,
+     `WaitTimeToBoot`), une notification **« 3DSMonitor loaded »** apparaît
+     en haut de l'écran.
+   - Un **flash jaune** de l'écran haut suivi d'un plantage = échec de
+     l'initialisation GSP dans CTRPF (`pluginInit.cpp`) : à me signaler.
 3. En jeu, appuyer sur **Select** pour ouvrir le menu CTRPF (raccourci par
    défaut : `Preferences::MenuHotkeys = Key::Select` dans la source CTRPF).
    - **Attendu** : un menu « 3DSMonitor » avec une entrée **Hello**. La
