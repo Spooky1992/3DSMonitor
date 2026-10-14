@@ -1,0 +1,4 @@
+/Build
+*.3gx
+*.elf
+__pycache__/
