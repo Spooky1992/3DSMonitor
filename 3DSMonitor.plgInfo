@@ -1,0 +1,25 @@
+Author: 3DSMonitor
+
+Version: # Plugin version
+    Major: 0
+    Minor: 0
+    Revision: 1
+
+Targets: # Low TitleId of games which are compatibles with this plugin (0 for all)
+
+Title: 3DSMonitor
+
+Summary: Gameplay recorder (top screen) for Old 3DS
+
+Description: |
+  Records the top screen to the SD card.
+  Phase 0: hello world only.
+
+Compatibility: Any
+
+# Luma3DS plugin loader accepts 2MiB / 5MiB / 10MiB (see Luma3DS
+# sysmodules/rosalina/source/plugin/file_loader.c). On Old 3DS the block is
+# taken from the SYSTEM region, keep the default 5MiB.
+MemorySize: 5MiB
+
+UsePrivateMemory: false
