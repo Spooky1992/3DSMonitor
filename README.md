@@ -50,7 +50,11 @@ But : vérifier que le plugin se charge et que la chaîne de build est bonne.
 1. Installer le `.3gx` produit par la CI (voir ci-dessus), de préférence pour un
    seul jeu que tu connais bien.
 2. Lancer le jeu.
-   - **Attendu** : quelques secondes après le démarrage (délai de boot CTRPF,
+   - **Attendu (Luma)** : au lancement, un court **flash bleu** de l'écran haut
+     (~0,3 s). C'est Luma qui signale qu'il a chargé un plugin
+     (`plgloader.c`, v13.3.2). **Pas de flash = Luma n'a trouvé aucun
+     `.3gx`** : vérifier le chemin (`SD:/luma/plugins/...`, pas `SD:/plugins/`).
+   - **Attendu (plugin)** : quelques secondes après le démarrage (délai de boot CTRPF,
      `WaitTimeToBoot`), une notification **« 3DSMonitor loaded »** apparaît
      en haut de l'écran.
    - Un **flash jaune** de l'écran haut suivi d'un plantage = échec de
