@@ -4,7 +4,7 @@ Plugin Luma3DS (`.3gx`, basé sur CTRPluginFramework) pour enregistrer l'écran
 haut d'une Nintendo 3DS **classique (Old 3DS)** sur la carte SD, plus des
 scripts PC pour convertir les fichiers.
 
-> État actuel : **Phase 1** – **L+R+START** enregistre une capture de l'écran
+> État actuel : **Phase 1** – **L+R+Bas** enregistre une capture de l'écran
 > haut (fichier `.raw`) ; `tools/raw2png.py` la convertit en PNG. Pas encore de
 > vidéo.
 
@@ -96,9 +96,9 @@ But : vérifier que la capture lit correctement l'écran du jeu et l'écrit sur 
 1. Copier le nouveau `.3gx` à la place de l'ancien (`SD:/luma/plugins/default.3gx`).
 2. Lancer un **jeu 3DS**.
    - **Attendu** : flash au lancement (Luma), puis la notification
-     **« 3DSMonitor ready: L+R+START = screenshot »**.
+     **« 3DSMonitor ready: L+R+DOWN = screenshot »**.
 3. En jeu, sur un écran bien reconnaissable, appuyer **en même temps** sur
-   **L + R + START** (le jeu peut se mettre en pause à cause de START, c'est normal).
+   **L + R + Bas (croix directionnelle)** (tenir L et R, puis appuyer sur Bas).
    - **Attendu** : notification **« Saved shot_….raw »** au bout d'une fraction
      de seconde. Le jeu ne doit pas se figer.
 4. Faire 2 ou 3 captures sur des écrans différents (dont une avec la 3D activée
@@ -121,3 +121,9 @@ But : vérifier que la capture lit correctement l'écran du jeu et l'écrit sur 
 
 - **Phase 0** (validée sur console, Luma 13.3.2, Old 3DS) : le plugin se charge
   dans un jeu 3DS, le menu s'ouvre avec Select.
+- **Phase 1, 1er essai** (Pokémon Rubis Oméga, `00040000011C4000`) : crash
+  « data abort » dans `free()` après L+R+START. Analyse de l'écran de crash :
+  le jeu se terminait (L+R+START déclenche un reset logiciel dans certains
+  jeux), puis `delete menu` en fin de `main()` plantait dans les destructeurs
+  du menu CTRPF 0.8.0 (objet déjà libéré). Corrigé : combo **L+R+Bas** et plus
+  de destruction du menu à la sortie.

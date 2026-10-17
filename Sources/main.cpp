@@ -13,7 +13,7 @@
 
 namespace CTRPluginFramework
 {
-    // Phase 1: L+R+START takes one screenshot of the top screen (left eye)
+    // Phase 1: L+R+DOWN takes one screenshot of the top screen (left eye)
     // and writes it as a .raw file (RecHeader + 1 frame of RGB565).
     //
     // Threads:
@@ -25,7 +25,9 @@ namespace CTRPluginFramework
     //    the slow SD card writes.
     // They talk through g_shotState (atomic accesses).
 
-    static const u32    kHotkey = Key::L | Key::R | Key::Start;
+    // Not L+R+START: games use START combos for soft reset (the game restarts,
+    // see the crash note at the end of main()).
+    static const u32    kHotkey = Key::L | Key::R | Key::DPadDown;
     static const u32    kWidth = 400;
     static const u32    kHeight = 240;
     static const u32    kFrameBytes = kWidth * kHeight * sizeof(u16);
@@ -236,14 +238,14 @@ namespace CTRPluginFramework
     {
         PluginMenu *menu = new PluginMenu("3DSMonitor", 0, 1, 0,
                                           "Gameplay recorder for Old 3DS.\n"
-                                          "Phase 1: L+R+START saves a screenshot of the top screen\n"
+                                          "Phase 1: L+R+DOWN saves a screenshot of the top screen\n"
                                           "to /luma/plugins/<TitleID>/rec/.");
 
         menu->SynchronizeWithFrame(true);
 
-        *menu += new MenuEntry("Screenshot: L+R+START", nullptr, [](MenuEntry *entry)
+        *menu += new MenuEntry("Screenshot: L+R+DOWN", nullptr, [](MenuEntry *entry)
         {
-            MessageBox("3DSMonitor", "Press L+R+START in game.\nFiles go to:\n" + g_recDir)();
+            MessageBox("3DSMonitor", "Press L+R+DOWN in game.\nFiles go to:\n" + g_recDir)();
         });
 
         int dirRes = CreateRecDir();
@@ -259,17 +261,19 @@ namespace CTRPluginFramework
         else if (!g_shotBuffer)
             OSD::Notify("3DSMonitor: out of memory", Color::Red);
         else
-            OSD::Notify("3DSMonitor ready: L+R+START = screenshot");
+            OSD::Notify("3DSMonitor ready: L+R+DOWN = screenshot");
 
         OSD::Run(CaptureCallback);
         *menu += Poll;
 
         menu->Run();
 
+        // Run() only returns when the game process exits. Deliberately no
+        // `delete menu` / free(): on console (CTRPF 0.8.0, Luma 13.3.2) deleting
+        // the menu at that point crashed in ~MenuFolderImpl -> ~MenuItem ->
+        // free() on an already freed item (data abort). The process is going
+        // away and Luma reclaims the whole plugin memory block anyway.
         OSD::Stop(CaptureCallback);
-        delete menu;
-        free(g_shotBuffer);
-        g_shotBuffer = nullptr;
         return 0;
     }
 }
