@@ -68,10 +68,10 @@ static uint16_t Reference(uint32_t format, const uint8_t *p)
     return (uint16_t)(((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3));
 }
 
-static int TestFormat(uint32_t format, const char *name)
+static int TestFormat(uint32_t format, const char *name, uint32_t padding = 16)
 {
     const uint32_t bpp = Capture::BytesPerPixel(format);
-    const uint32_t stride = bpp * H + 16; // padding between columns to test stride handling
+    const uint32_t stride = bpp * H + padding; // padding between columns to test stride handling
     std::vector<uint8_t> fb(stride * W + 4, 0xCD);
     std::vector<uint16_t> out(W * H);
 
@@ -136,6 +136,8 @@ int main()
     failed += TestFormat(Capture::SRC_RGB565, "rgb565");
     failed += TestFormat(Capture::SRC_RGB5A1, "rgb5a1");
     failed += TestFormat(Capture::SRC_RGBA4, "rgba4");
+    // Odd stride: BGR8 columns not 4-byte aligned -> byte-by-byte fallback path
+    failed += TestFormat(Capture::SRC_BGR8, "bgr8_unaligned", 2);
 
     // Invalid inputs must be rejected
     uint8_t dummy[4] = {0};

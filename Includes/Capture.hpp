@@ -79,9 +79,27 @@ namespace Capture
                 }
                 case SRC_BGR8:
                 {
-                    const uint8_t *p = src;
-                    for (uint32_t i = 0; i < height; ++i, p += 3)
-                        *dst++ = ((p[2] & 0xF8) << 8) | ((p[1] & 0xFC) << 3) | (p[0] >> 3);
+                    // The framebuffer may be read through an uncached mapping:
+                    // read 3 words for 4 pixels instead of 12 single bytes.
+                    if ((reinterpret_cast<uintptr_t>(src) & 3) == 0 && (height & 3) == 0)
+                    {
+                        const uint32_t *p = reinterpret_cast<const uint32_t *>(src);
+                        for (uint32_t i = 0; i < height; i += 4, p += 3)
+                        {
+                            // Little endian: w0 = B0 G0 R0 B1, w1 = G1 R1 B2 G2, w2 = R2 B3 G3 R3
+                            const uint32_t w0 = p[0], w1 = p[1], w2 = p[2];
+                            *dst++ = ((w0 >> 8) & 0xF800) | ((w0 >> 5) & 0x07E0) | ((w0 >> 3) & 0x001F);
+                            *dst++ = (w1 & 0xF800) | ((w1 << 3) & 0x07E0) | (w0 >> 27);
+                            *dst++ = ((w2 << 8) & 0xF800) | ((w1 >> 21) & 0x07E0) | ((w1 >> 19) & 0x001F);
+                            *dst++ = (w2 & 0xF8000000) >> 16 | ((w2 >> 13) & 0x07E0) | ((w2 >> 11) & 0x001F);
+                        }
+                    }
+                    else
+                    {
+                        const uint8_t *p = src;
+                        for (uint32_t i = 0; i < height; ++i, p += 3)
+                            *dst++ = ((p[2] & 0xF8) << 8) | ((p[1] & 0xFC) << 3) | (p[0] >> 3);
+                    }
                     break;
                 }
                 case SRC_RGB565:
