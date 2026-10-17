@@ -2,3 +2,4 @@
 *.3gx
 *.elf
 __pycache__/
+/tests/host/out
