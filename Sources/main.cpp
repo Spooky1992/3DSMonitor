@@ -1,36 +1,30 @@
 #include <3ds.h>
 #include <CTRPluginFramework.hpp>
 
-#include <cstdarg>
-#include <cstdio>
-#include <cstdlib>
 #include <cstring>
-#include <ctime>
 #include <string>
 
-#include "Capture.hpp"
-#include "RecFormat.hpp"
+#include "Common.hpp"
+#include "Recorder.hpp"
 
 namespace CTRPluginFramework
 {
-    // Phase 1: L+R+DOWN takes one screenshot of the top screen (left eye)
-    // and writes it as a .raw file (RecHeader + 1 frame of RGB565).
+    // L+R+DOWN starts / stops recording the top screen (Recorder.cpp).
+    // L+R+UP saves one screenshot (when not recording).
     //
     // Threads:
     //  - the OSD callback runs in the game's thread, inside CTRPF's hook of
     //    the framebuffer swap (OSDImpl.cpp). It must stay short: it only
-    //    converts the framebuffer into a buffer allocated at startup.
+    //    converts the framebuffer into buffers allocated at startup.
     //  - the menu callback runs in the plugin's thread (PluginMenuImpl main
     //    loop, right after Controller::Update()). It reads the keys and does
-    //    the slow SD card writes.
-    // They talk through g_shotState (atomic accesses).
+    //    the slow SD card work (plus the recorder's own writer thread).
+    // Screenshots talk through g_shotState (atomic accesses).
 
     // Not L+R+START: games use START combos for soft reset (the game restarts,
     // see the crash note at the end of main()).
-    static const u32    kHotkey = Key::L | Key::R | Key::DPadDown;
-    static const u32    kWidth = 400;
-    static const u32    kHeight = 240;
-    static const u32    kFrameBytes = kWidth * kHeight * sizeof(u16);
+    static const u32    kRecHotkey = Key::L | Key::R | Key::DPadDown;
+    static const u32    kShotHotkey = Key::L | Key::R | Key::DPadUp;
 
     enum : s32
     {
@@ -41,14 +35,12 @@ namespace CTRPluginFramework
     };
 
     static s32          g_shotState = SHOT_IDLE;
-    static u16 *        g_shotBuffer = nullptr;
+    static u16 *        g_shotBuffer = nullptr; ///< Recorder's idle slot, only valid while not recording
     // Written by the OSD callback before it publishes SHOT_DONE / SHOT_FAILED.
     static u32          g_shotAddr = 0;
     static u32          g_shotStride = 0;
     static u32          g_shotFormat = 0;
     static u64          g_shotTicks = 0;
-
-    static std::string  g_recDir;   ///< /luma/plugins/<TitleID>/rec
 
     static inline s32   LoadState(void)
     {
@@ -60,114 +52,22 @@ namespace CTRPluginFramework
         __atomic_store_n(&g_shotState, state, __ATOMIC_RELEASE);
     }
 
-    static inline float TicksToMs(u64 ticks)
-    {
-        return (float)ticks * 1000.f / (float)SYSCLOCK_ARM11;
-    }
-
-    // Appends one line to <recDir>/3dsmonitor.log. Plugin thread only.
-    static void     Log(const char *fmt, ...)
-    {
-        char    line[256];
-        int     len;
-        time_t  now = time(nullptr);
-        struct tm t;
-
-        gmtime_r(&now, &t); ///< The console clock is local time, no timezone to apply
-        len = snprintf(line, sizeof(line), "[%04d-%02d-%02d %02d:%02d:%02d] ",
-                       t.tm_year + 1900, t.tm_mon + 1, t.tm_mday, t.tm_hour, t.tm_min, t.tm_sec);
-
-        va_list args;
-        va_start(args, fmt);
-        len += vsnprintf(line + len, sizeof(line) - len - 1, fmt, args);
-        va_end(args);
-
-        if (len > (int)sizeof(line) - 2)
-            len = sizeof(line) - 2;
-        line[len++] = '\n';
-
-        File    file;
-        if (File::Open(file, g_recDir + "/3dsmonitor.log", File::WRITE | File::CREATE | File::APPEND) == File::SUCCESS)
-        {
-            file.Write(line, len);
-            file.Close();
-        }
-    }
-
-    // Creates /luma/plugins/<TitleID>/rec. Directory::Create is not
-    // recursive and returns SUCCESS if the folder already exists.
-    static int      CreateRecDir(void)
-    {
-        std::string tid;
-        Process::GetTitleID(tid);
-
-        std::string path = "/luma/plugins/" + tid;
-        g_recDir = path + "/rec";
-
-        int res = Directory::Create(path);
-        if (res == Directory::SUCCESS)
-            res = Directory::Create(g_recDir);
-        return res;
-    }
-
-    // Is [addr, addr + size) a framebuffer we can read from this process?
-    //
-    // Unless FwkSettings::CachedDrawMode is set, CTRPF does not hand us the
-    // game's virtual address but PA_FROM_VA(addr) (OSDImpl.cpp GetBuffer()):
-    // the physical address with bit 31 set (PA_RWX in csvc.h), a mapping of
-    // physical memory that CTRPF itself draws into without any cache flush.
-    // Seen on console: 0x98300000 / 0x98346600 = VRAM 0x18300000 / 0x18346600.
-    // Process::CheckAddress() does not know that mapping, so check the
-    // physical range instead.
-    static bool     IsReadableFramebuffer(u32 addr, u32 size, bool &isPhysical)
-    {
-        isPhysical = (addr & 0x80000000) != 0;
-        if (isPhysical)
-        {
-            const u32 pa = addr & 0x7FFFFFFF;
-            const u32 end = pa + size;
-            const bool inVram = pa >= 0x18000000 && end <= 0x18600000;
-            const bool inFcram = pa >= 0x20000000 && end <= 0x30000000; ///< PA_RWX only maps PAs below 0x30000000
-            return inVram || inFcram;
-        }
-        return addr && Process::CheckAddress(addr, MEMPERM_READ)
-                    && Process::CheckAddress(addr + size - 1, MEMPERM_READ);
-    }
-
     // Game thread: called by CTRPF for each screen, every frame.
     static bool     CaptureCallback(const Screen &screen)
     {
-        if (!screen.IsTop || LoadState() != SHOT_REQUESTED)
+        if (!screen.IsTop)
             return false;
 
-        const u32 addr = screen.LeftFramebuffer; ///< Left eye when 3D is on
-        const u32 size = screen.Stride * kWidth;
+        Recorder::OnFrame(screen);
 
-        g_shotAddr = addr;
+        if (LoadState() != SHOT_REQUESTED)
+            return false;
+
+        g_shotAddr = screen.LeftFramebuffer;
         g_shotStride = screen.Stride;
         g_shotFormat = screen.Format;
 
-        bool isPhysical;
-        if (!IsReadableFramebuffer(addr, size, isPhysical))
-        {
-            StoreState(SHOT_FAILED);
-            return false;
-        }
-
-        const u64 start = svcGetSystemTick();
-
-        // Virtual address (CachedDrawMode): the GPU wrote the framebuffer behind
-        // the CPU cache's back, write back and drop the cached lines of that
-        // range so we read the real frame. Flush (not invalidate) so we don't
-        // drop pixels CTRPF's OSD just drew. The physical mapping is used by
-        // CTRPF without any flush, so we don't flush it either.
-        if (!isPhysical)
-            svcFlushProcessDataCache(CUR_PROCESS_HANDLE, addr, size);
-
-        const bool ok = Capture::ToRGB565(reinterpret_cast<const u8 *>(addr), screen.Stride,
-                                          screen.Format, g_shotBuffer, kWidth, kHeight);
-
-        g_shotTicks = svcGetSystemTick() - start;
+        const bool ok = ConvertTopScreen(screen, g_shotBuffer, g_shotTicks);
         StoreState(ok ? SHOT_DONE : SHOT_FAILED);
         return false;
     }
@@ -175,26 +75,10 @@ namespace CTRPluginFramework
     // Plugin thread: writes the captured frame to the SD card.
     static void     SaveShot(void)
     {
-        time_t  now = time(nullptr);
-        struct tm t;
-        char    name[80];
-
-        gmtime_r(&now, &t);
-        snprintf(name, sizeof(name), "shot_%04d%02d%02d_%02d%02d%02d.raw",
-                 t.tm_year + 1900, t.tm_mon + 1, t.tm_mday, t.tm_hour, t.tm_min, t.tm_sec);
+        const std::string name = TimestampName("shot");
 
         RecHeader hdr;
-        memset(&hdr, 0, sizeof(hdr));
-        memcpy(hdr.magic, REC_MAGIC, 4);
-        hdr.version = REC_VERSION;
-        hdr.headerSize = sizeof(RecHeader);
-        hdr.width = kWidth;
-        hdr.height = kHeight;
-        hdr.pixelFormat = REC_PIXEL_RGB565;
-        hdr.layout = REC_LAYOUT_COLUMNS;
-        hdr.srcFormat = g_shotFormat;
-        hdr.fps = 0;
-        hdr.frameCount = 1;
+        InitHeader(hdr, g_shotFormat, 0, 1, 0);
 
         const u64 start = svcGetSystemTick();
         File    file;
@@ -213,22 +97,49 @@ namespace CTRPluginFramework
         const float writeMs = TicksToMs(svcGetSystemTick() - start);
 
         Log("shot %s res=%d fmt=%lu stride=%lu addr=%08lX convert=%.2fms write=%.2fms",
-            name, res, g_shotFormat, g_shotStride, g_shotAddr, TicksToMs(g_shotTicks), writeMs);
+            name.c_str(), res, g_shotFormat, g_shotStride, g_shotAddr, TicksToMs(g_shotTicks), writeMs);
 
         if (res == File::SUCCESS)
-            OSD::Notify(std::string("Saved ") + name);
+            OSD::Notify("Saved " + name);
         else
             OSD::Notify(Utils::Format("Screenshot write error %08X", res), Color::Red);
+    }
+
+    static void     ToggleRecording(void)
+    {
+        if (Recorder::IsRecording())
+        {
+            Recorder::Stop();
+            OSD::Notify("REC stopping...");
+            return;
+        }
+
+        int res = Recorder::Start();
+        if (res == 0)
+            OSD::Notify("REC started (L+R+DOWN to stop)", Color::White, Color::Red);
+        else
+        {
+            Log("rec start failed res=%d", res);
+            OSD::Notify(Utils::Format("REC start error %08X", res), Color::Red);
+        }
     }
 
     // Plugin thread: called on every iteration of the plugin's main loop.
     static void     Poll(void)
     {
+        Recorder::Poll();
+
         switch (LoadState())
         {
             case SHOT_IDLE:
-                if (g_shotBuffer && Controller::IsKeysPressed(kHotkey))
-                    StoreState(SHOT_REQUESTED);
+                if (Controller::IsKeysPressed(kRecHotkey))
+                    ToggleRecording();
+                else if (Controller::IsKeysPressed(kShotHotkey) && !Recorder::IsRecording())
+                {
+                    g_shotBuffer = Recorder::IdleBuffer();
+                    if (g_shotBuffer)
+                        StoreState(SHOT_REQUESTED);
+                }
                 break;
 
             case SHOT_DONE:
@@ -263,32 +174,34 @@ namespace CTRPluginFramework
 
     int     main(void)
     {
-        PluginMenu *menu = new PluginMenu("3DSMonitor", 0, 1, 1,
+        PluginMenu *menu = new PluginMenu("3DSMonitor", 0, 2, 0,
                                           "Gameplay recorder for Old 3DS.\n"
-                                          "Phase 1: L+R+DOWN saves a screenshot of the top screen\n"
-                                          "to /luma/plugins/<TitleID>/rec/.");
+                                          "L+R+DOWN: start / stop recording the top screen\n"
+                                          "L+R+UP: screenshot\n"
+                                          "Files: /luma/plugins/<TitleID>/rec/");
 
         menu->SynchronizeWithFrame(true);
 
-        *menu += new MenuEntry("Screenshot: L+R+DOWN", nullptr, [](MenuEntry *entry)
+        *menu += new MenuEntry("Help", nullptr, [](MenuEntry *entry)
         {
-            MessageBox("3DSMonitor", "Press L+R+DOWN in game.\nFiles go to:\n" + g_recDir)();
+            MessageBox("3DSMonitor",
+                       "L+R+DOWN: start / stop recording\nL+R+UP: screenshot\nFiles go to:\n" + g_recDir)();
         });
 
         int dirRes = CreateRecDir();
 
         // Allocated once: nothing is allocated in the per-frame callback.
-        g_shotBuffer = static_cast<u16 *>(malloc(kFrameBytes));
+        const bool ringOk = Recorder::Init();
 
-        Log("3DSMonitor 0.1.1 started, dir=%s dirRes=%d buffer=%s",
-            g_recDir.c_str(), dirRes, g_shotBuffer ? "ok" : "ALLOC FAILED");
+        Log("3DSMonitor 0.2.0 started, dir=%s dirRes=%d ring=%lu slots",
+            g_recDir.c_str(), dirRes, Recorder::SlotCount());
 
         if (dirRes != Directory::SUCCESS)
             OSD::Notify(Utils::Format("3DSMonitor: can't create rec dir (%08X)", dirRes), Color::Red);
-        else if (!g_shotBuffer)
+        else if (!ringOk)
             OSD::Notify("3DSMonitor: out of memory", Color::Red);
         else
-            OSD::Notify("3DSMonitor ready: L+R+DOWN = screenshot");
+            OSD::Notify("3DSMonitor ready: L+R+DOWN = REC, L+R+UP = screenshot");
 
         OSD::Run(CaptureCallback);
         *menu += Poll;
@@ -300,6 +213,8 @@ namespace CTRPluginFramework
         // the menu at that point crashed in ~MenuFolderImpl -> ~MenuItem ->
         // free() on an already freed item (data abort). The process is going
         // away and Luma reclaims the whole plugin memory block anyway.
+        // A recording in progress is not finalized: its header keeps
+        // frameCount = 0 and the PC tools compute it from the file size.
         OSD::Stop(CaptureCallback);
         return 0;
     }
