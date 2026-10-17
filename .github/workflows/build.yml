@@ -32,3 +32,12 @@ jobs:
         with:
           name: 3DSMonitor-elf
           path: 3DSMonitor.elf
+
+  host-tests:
+    # Framebuffer conversion + PC tools, compiled and run on the CI machine.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run host tests
+        run: tests/host/run.sh

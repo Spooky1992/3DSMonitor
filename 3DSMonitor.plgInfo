@@ -2,8 +2,8 @@ Author: 3DSMonitor
 
 Version: # Plugin version
     Major: 0
-    Minor: 0
-    Revision: 1
+    Minor: 1
+    Revision: 0
 
 Targets: # Low TitleId of games which are compatibles with this plugin (0 for all)
 
@@ -13,7 +13,7 @@ Summary: Gameplay recorder (top screen) for Old 3DS
 
 Description: |
   Records the top screen to the SD card.
-  Phase 0: hello world only.
+  Phase 1: L+R+START saves a top screen screenshot (.raw).
 
 Compatibility: Any
 
