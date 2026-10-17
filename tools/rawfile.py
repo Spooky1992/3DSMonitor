@@ -51,6 +51,18 @@ class RawHeader:
             self.fps, self.frame_count, self.dropped_frames))
 
 
+def frames_in_file(hdr, file_size):
+    """Number of complete frames to use.
+
+    frameCount is 0 when the game exited during a recording (the plugin
+    could not rewrite the header): count the complete frames in the file.
+    """
+    available = max(0, (file_size - hdr.header_size) // hdr.frame_size)
+    if hdr.frame_count == 0 or hdr.frame_count > available:
+        return available
+    return hdr.frame_count
+
+
 def read_header(f):
     hdr = RawHeader(f.read(HEADER_STRUCT.size))
     f.seek(hdr.header_size)

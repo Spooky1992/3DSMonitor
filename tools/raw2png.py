@@ -45,8 +45,9 @@ def main():
         with open(args.input, "rb") as f:
             hdr = rawfile.read_header(f)
             print(hdr.describe())
-            if not 0 <= args.frame < hdr.frame_count:
-                sys.exit("error: frame %d out of range (file has %d frames)" % (args.frame, hdr.frame_count))
+            frames = rawfile.frames_in_file(hdr, os.fstat(f.fileno()).st_size)
+            if not 0 <= args.frame < frames:
+                sys.exit("error: frame %d out of range (file has %d frames)" % (args.frame, frames))
             data = rawfile.read_frame(f, hdr, args.frame)
     except (OSError, rawfile.RawFormatError) as e:
         sys.exit("error: %s" % e)

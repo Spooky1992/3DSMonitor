@@ -73,10 +73,52 @@ def check_png(name):
     return ok
 
 
+def check_mp4():
+    """Recording -> convert.py -> mp4, decoded back with ffmpeg: orientation and colours."""
+    sys.path.insert(0, os.path.join(ROOT, "tools"))
+    import convert  # noqa: E402
+    ffmpeg = convert.find_ffmpeg()
+    if not ffmpeg:
+        if os.environ.get("REQUIRE_FFMPEG"):
+            print("FAIL mp4: ffmpeg not found")
+            return False
+        print("skip mp4 (ffmpeg not found)")
+        return True
+
+    # 3 frames, header as left by a recording interrupted by the game exiting
+    with open(os.path.join(OUT, "rgba8.raw"), "rb") as f:
+        hdr_bytes, frame = f.read(32), f.read()
+    hdr = bytearray(hdr_bytes)
+    struct.pack_into("<H", hdr, 16, 15)  # fps
+    struct.pack_into("<I", hdr, 20, 0)   # frameCount unknown
+    raw = os.path.join(OUT, "rec_test.raw")
+    mp4 = os.path.join(OUT, "rec_test.mp4")
+    with open(raw, "wb") as f:
+        f.write(bytes(hdr) + frame * 3 + frame[:1000])  # + a truncated frame to ignore
+    subprocess.check_call([sys.executable, os.path.join(ROOT, "tools", "convert.py"), raw, "-o", mp4],
+                          stdout=subprocess.DEVNULL)
+
+    probe = subprocess.check_output([ffmpeg, "-v", "error", "-i", mp4, "-f", "rawvideo",
+                                     "-pix_fmt", "rgb24", "-"])
+    ok = len(probe) == 3 * W * H * 3
+    diff = 0
+    if ok:
+        for y in range(0, H, 4):
+            for x in range(0, W, 4):
+                expected = [expand(c, 5 if i != 1 else 6) for i, c in enumerate(pattern(x, y))]
+                got = probe[(y * W + x) * 3:(y * W + x) * 3 + 3]
+                diff += sum(abs(a - b) for a, b in zip(got, expected))
+        diff /= (W // 4) * (H // 4) * 3.0
+        ok = diff < 12  # lossy H.264 + yuv420p; a wrong rotation gives ~80
+    print("%s rec_test.mp4 (3 frames, mean abs diff %.1f)" % ("ok  " if ok else "FAIL", diff))
+    return ok
+
+
 def main():
     ok = check_rgba8_orientation()
     for name in ("rgba8", "bgr8", "rgb565", "rgb5a1", "rgba4"):
         ok = check_png(name) and ok
+    ok = check_mp4() and ok
     print("ALL OK" if ok else "FAILED")
     return 0 if ok else 1
 
