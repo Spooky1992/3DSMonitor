@@ -67,6 +67,11 @@ Python 3, bibliothèque standard uniquement (rien à installer) :
 python tools/raw2png.py shot_20261017_181500.raw     # -> shot_20261017_181500.png
 ```
 
+Sous Windows : mettre `raw2png.bat`, `raw2png.py` et `rawfile.py` dans un même
+dossier avec les `.raw` (ou un sous-dossier `rec`), puis double-cliquer sur
+`raw2png.bat` (ou glisser des `.raw` dessus). Python doit être installé sur le
+PC (python.org, cocher « Add python.exe to PATH ») ; rien à installer sur la 3DS.
+
 ## Structure
 
 | Chemin | Rôle |
