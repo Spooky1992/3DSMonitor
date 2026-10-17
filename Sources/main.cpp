@@ -110,6 +110,30 @@ namespace CTRPluginFramework
         return res;
     }
 
+    // Is [addr, addr + size) a framebuffer we can read from this process?
+    //
+    // Unless FwkSettings::CachedDrawMode is set, CTRPF does not hand us the
+    // game's virtual address but PA_FROM_VA(addr) (OSDImpl.cpp GetBuffer()):
+    // the physical address with bit 31 set (PA_RWX in csvc.h), a mapping of
+    // physical memory that CTRPF itself draws into without any cache flush.
+    // Seen on console: 0x98300000 / 0x98346600 = VRAM 0x18300000 / 0x18346600.
+    // Process::CheckAddress() does not know that mapping, so check the
+    // physical range instead.
+    static bool     IsReadableFramebuffer(u32 addr, u32 size, bool &isPhysical)
+    {
+        isPhysical = (addr & 0x80000000) != 0;
+        if (isPhysical)
+        {
+            const u32 pa = addr & 0x7FFFFFFF;
+            const u32 end = pa + size;
+            const bool inVram = pa >= 0x18000000 && end <= 0x18600000;
+            const bool inFcram = pa >= 0x20000000 && end <= 0x30000000; ///< PA_RWX only maps PAs below 0x30000000
+            return inVram || inFcram;
+        }
+        return addr && Process::CheckAddress(addr, MEMPERM_READ)
+                    && Process::CheckAddress(addr + size - 1, MEMPERM_READ);
+    }
+
     // Game thread: called by CTRPF for each screen, every frame.
     static bool     CaptureCallback(const Screen &screen)
     {
@@ -123,8 +147,8 @@ namespace CTRPluginFramework
         g_shotStride = screen.Stride;
         g_shotFormat = screen.Format;
 
-        if (!addr || !Process::CheckAddress(addr, MEMPERM_READ)
-                  || !Process::CheckAddress(addr + size - 1, MEMPERM_READ))
+        bool isPhysical;
+        if (!IsReadableFramebuffer(addr, size, isPhysical))
         {
             StoreState(SHOT_FAILED);
             return false;
@@ -132,10 +156,13 @@ namespace CTRPluginFramework
 
         const u64 start = svcGetSystemTick();
 
-        // The GPU wrote the framebuffer behind the CPU cache's back: write back
-        // and drop any cached line of that range so we read the real frame.
-        // Flush (not invalidate) so we don't drop pixels CTRPF's OSD just drew.
-        svcFlushProcessDataCache(CUR_PROCESS_HANDLE, addr, size);
+        // Virtual address (CachedDrawMode): the GPU wrote the framebuffer behind
+        // the CPU cache's back, write back and drop the cached lines of that
+        // range so we read the real frame. Flush (not invalidate) so we don't
+        // drop pixels CTRPF's OSD just drew. The physical mapping is used by
+        // CTRPF without any flush, so we don't flush it either.
+        if (!isPhysical)
+            svcFlushProcessDataCache(CUR_PROCESS_HANDLE, addr, size);
 
         const bool ok = Capture::ToRGB565(reinterpret_cast<const u8 *>(addr), screen.Stride,
                                           screen.Format, g_shotBuffer, kWidth, kHeight);
@@ -236,7 +263,7 @@ namespace CTRPluginFramework
 
     int     main(void)
     {
-        PluginMenu *menu = new PluginMenu("3DSMonitor", 0, 1, 0,
+        PluginMenu *menu = new PluginMenu("3DSMonitor", 0, 1, 1,
                                           "Gameplay recorder for Old 3DS.\n"
                                           "Phase 1: L+R+DOWN saves a screenshot of the top screen\n"
                                           "to /luma/plugins/<TitleID>/rec/.");
@@ -253,7 +280,7 @@ namespace CTRPluginFramework
         // Allocated once: nothing is allocated in the per-frame callback.
         g_shotBuffer = static_cast<u16 *>(malloc(kFrameBytes));
 
-        Log("3DSMonitor 0.1.0 started, dir=%s dirRes=%d buffer=%s",
+        Log("3DSMonitor 0.1.1 started, dir=%s dirRes=%d buffer=%s",
             g_recDir.c_str(), dirRes, g_shotBuffer ? "ok" : "ALLOC FAILED");
 
         if (dirRes != Directory::SUCCESS)

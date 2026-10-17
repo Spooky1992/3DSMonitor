@@ -127,3 +127,8 @@ But : vérifier que la capture lit correctement l'écran du jeu et l'écrit sur 
   jeux), puis `delete menu` en fin de `main()` plantait dans les destructeurs
   du menu CTRPF 0.8.0 (objet déjà libéré). Corrigé : combo **L+R+Bas** et plus
   de destruction du menu à la sortie.
+- **Phase 1, 2e essai** (même jeu) : « Screenshot failed ». Log :
+  `fmt=33/65 stride=720 addr=98300000`. Le jeu est en BGR8 (`fmt & 7 = 1`) ; CTRPF
+  fournit l'adresse **physique** de la VRAM avec le bit 31 (`PA_FROM_VA`), que
+  `Process::CheckAddress()` refuse. Corrigé en 0.1.1 : ces adresses sont acceptées
+  si elles tombent en VRAM ou en FCRAM.
